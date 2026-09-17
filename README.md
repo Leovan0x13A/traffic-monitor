@@ -14,7 +14,7 @@
 
 ## 安装
 
-先下载并检查脚本，再以 root 运行。进入下载目录后：
+下载脚本后以 root 运行；运行前查看内容是建议的安全检查：
 
 ```bash
 sudo bash install_traffic_monitor.sh
@@ -25,7 +25,7 @@ sudo bash install_traffic_monitor.sh
 1. 公网网卡（默认从 IPv4 默认路由识别）与主机标识。
 2. 每自然月的上限和阶梯提醒值，单位为十进制 GB。
 3. 达限动作：`alert` 仅发邮件，或 `shutdown` 自动关机。自动关机还需要输入 `YES` 确认。
-4. SMTP 服务器、端口、发件账号、收件邮箱与应用密码/授权码。
+4. SMTP 服务器、端口、发件账号、收件邮箱与应用密码/授权码。SMTP 服务器默认 `smtp.gmail.com`，端口默认 `587`；直接回车即可采用默认值。
 
 安装器会发送一封测试邮件。只有 SMTP 提交成功后才启用定时任务。授权码在终端输入时不显示，保存在仅 root 可读的 `/etc/traffic-monitor/smtp-password`；配置文件同样仅 root 可读。请勿将这些文件提交到 GitHub。
 
