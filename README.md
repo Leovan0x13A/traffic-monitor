@@ -14,9 +14,10 @@
 
 ## 安装
 
-下载脚本后以 root 运行；运行前查看内容是建议的安全检查：
+从 [GitHub 仓库](https://github.com/leovan0x13a/traffic-monitor) 下载脚本，查看内容后以 root 运行：
 
 ```bash
+curl -fL -o install_traffic_monitor.sh https://raw.githubusercontent.com/leovan0x13a/traffic-monitor/main/install_traffic_monitor.sh
 sudo bash install_traffic_monitor.sh
 ```
 
