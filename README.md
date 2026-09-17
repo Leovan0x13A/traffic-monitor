@@ -49,6 +49,17 @@ journalctl -u traffic-monitor.service -n 30 --no-pager
 sudo traffic-monitor --test-mail
 ```
 
+## 一键卸载
+
+从仓库下载卸载脚本，查看内容后以 root 运行：
+
+```bash
+curl -fL -o uninstall_traffic_monitor.sh https://raw.githubusercontent.com/leovan0x13a/traffic-monitor/main/uninstall_traffic_monitor.sh
+sudo bash uninstall_traffic_monitor.sh
+```
+
+输入 `YES` 后，脚本停止并禁用项目定时任务，删除项目程序、配置、SMTP 授权码和提醒状态；若安装时备份了原有 `status`，会将其恢复。机器时区保持当前设置，内核网卡计数不受影响。脚本最后询问是否卸载 `vnstat` 和 `msmtp` 软件包，只有输入 `PURGE` 才执行；软件包可能被其他程序使用。vnStat 的历史数据库默认保留。
+
 ## 文件位置
 
 | 路径 | 用途 |
