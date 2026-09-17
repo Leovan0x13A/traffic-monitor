@@ -78,7 +78,7 @@ def configure():
         raise ValueError('达限动作只能是 alert 或 shutdown')
     if action == 'shutdown' and ask('确认达限后自动关机？输入 YES', 'NO') != 'YES':
         raise ValueError('未确认自动关机')
-    host = ask('SMTP 服务器，如 smtp.gmail.com')
+    host = ask('SMTP 服务器', 'smtp.gmail.com')
     port = int(ask('SMTP 端口：587=STARTTLS，465=TLS', '587'))
     if port not in (465, 587):
         raise ValueError('目前仅支持端口 465 或 587')
