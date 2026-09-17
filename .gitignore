@@ -1,0 +1,8 @@
+# 本机凭据、运行状态与日志不能提交
+config.json
+msmtprc
+smtp-password
+state.json
+*.log
+*.bak
+*.backup
