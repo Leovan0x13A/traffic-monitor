@@ -7,7 +7,7 @@ if [[ ${EUID} -ne 0 ]]; then
   echo '请以 root 身份运行。' >&2
   exit 1
 fi
-for cmd in apt-get systemctl ip python3; do
+for cmd in apt-get systemctl timedatectl ip python3; do
   command -v "$cmd" >/dev/null || { echo "缺少命令: $cmd" >&2; exit 1; }
 done
 
@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from zoneinfo import available_timezones
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -36,6 +37,7 @@ MSMTP = Path('/root/.msmtprc-traffic-monitor')
 SECRET = Path('/etc/traffic-monitor/smtp-password')
 STATE = Path('/var/lib/traffic-monitor/state.json')
 LOCK = Path('/var/lib/traffic-monitor/lock')
+KERNEL_BASE = Path('/var/lib/traffic-monitor/kernel-baseline.json')
 GB = 1_000_000_000
 os.umask(0o077)
 
@@ -61,7 +63,34 @@ def ask(prompt, default=None):
     value = input(f'{prompt}{suffix}: ').strip()
     return value or default
 
+def kernel(cfg):
+    base = Path('/sys/class/net') / cfg['interface'] / 'statistics'
+    return int((base / 'rx_bytes').read_text()) + int((base / 'tx_bytes').read_text())
+
+def boot_id():
+    return Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+
+def kernel_since_baseline(cfg):
+    total = kernel(cfg)
+    if not KERNEL_BASE.exists():
+        return total, '本次开机累计'
+    saved = json.loads(KERNEL_BASE.read_text())
+    if (saved.get('interface') != cfg['interface'] or
+            saved.get('boot_id') != boot_id() or total < saved.get('bytes', 0)):
+        return total, '本次开机累计'
+    return total - saved['bytes'], '自设置基线以来'
+
 def configure():
+    timezone = subprocess.check_output(
+        ['timedatectl', 'show', '-p', 'Timezone', '--value'], text=True).strip() or 'UTC'
+    print(f'当前机器时区：{timezone}')
+    if ask('是否更改机器时区？y/N', 'N').lower() in ('y', 'yes'):
+        selected = ask('新时区（如 Asia/Shanghai）')
+        if selected not in available_timezones():
+            raise ValueError('无效时区，请使用 IANA 时区名称')
+        subprocess.run(['timedatectl', 'set-timezone', selected], check=True)
+        subprocess.run(['systemctl', 'restart', 'vnstat.service'], check=True)
+        print(f'时区已更改为 {selected}；vnStat 已有历史记录不会重新按新时区计算。')
     route = subprocess.check_output(['ip', '-o', '-4', 'route', 'show', 'default'], text=True)
     match = re.search(r'\bdev\s+(\S+)', route)
     default_iface = match.group(1) if match else None
@@ -69,7 +98,10 @@ def configure():
     if not iface or not Path('/sys/class/net', iface).is_dir():
         raise ValueError('网卡不存在')
     name = ask('主机标识', os.uname().nodename)
-    limit = float(ask('每自然月熔断值（十进制 GB）', '1000'))
+    reset_day = int(ask('每月流量统计重置日（1～28 日）', '1'))
+    if not 1 <= reset_day <= 28:
+        raise ValueError('重置日只能是 1～28 日')
+    limit = float(ask('每账期熔断值（十进制 GB）', '1000'))
     nodes = [float(x.strip()) for x in ask('提醒阶梯，逗号分隔（GB）', '50,100,200,300,400,500,600,700,800,900,950').split(',')]
     if limit <= 0 or any(x <= 0 or x >= limit for x in nodes):
         raise ValueError('阶梯必须大于 0 且小于熔断值')
@@ -87,12 +119,19 @@ def configure():
     if not host or not user or not recipient or not re.fullmatch(r'[A-Za-z0-9._-]+', host):
         raise ValueError('SMTP 信息不完整或服务器名无效')
     password = getpass.getpass('SMTP 应用密码或授权码（输入不显示）: ')
+    if host.lower() == 'smtp.gmail.com':
+        password = ''.join(password.split())
     if not password or '\n' in password:
         raise ValueError('SMTP 密码不能为空或包含换行')
-    cfg = {'interface': iface, 'hostname': name, 'limit_gb': limit,
+    cfg = {'interface': iface, 'hostname': name, 'reset_day': reset_day,
+           'limit_gb': limit,
            'nodes_gb': sorted(set(nodes)), 'action': action,
            'recipient': recipient}
     atomic_json(CONFIG, cfg)
+    if ask('是否将当前内核网卡计数设为显示基线（显示从现在起的流量）？y/N', 'N').lower() in ('y', 'yes'):
+        atomic_json(KERNEL_BASE, {'interface': iface, 'boot_id': boot_id(),
+                                  'bytes': kernel(cfg)})
+        print('内核流量显示基线已设置；系统原始计数和 vnStat 历史不受影响。')
     SECRET.write_text(password + '\n')
     os.chmod(SECRET, 0o600)
     # msmtp 的密码文件仅 root 可读；凭据不放进进程参数或日志。
@@ -124,23 +163,38 @@ def send_mail(cfg, subject, body):
 
 def usage(cfg):
     iface = cfg['interface']
-    raw = subprocess.check_output(['vnstat', '-i', iface, '--json', 'm'], text=True)
+    raw = subprocess.check_output(['vnstat', '-i', iface, '--json'], text=True)
     data = json.loads(raw)
     interfaces = [x for x in data.get('interfaces', []) if x.get('name') == iface]
     if not interfaces:
         raise RuntimeError(f'vnStat 中尚无网卡 {iface} 的数据')
     today = dt.datetime.now().astimezone().date()
-    months = interfaces[0].get('traffic', {}).get('month', [])
-    current = [x for x in months if x.get('date', {}).get('year') == today.year
-               and x.get('date', {}).get('month') == today.month]
-    if not current:
-        raise NoDataYet('vnStat 尚无本月数据，等待首次采集')
-    item = current[-1]
-    return today.strftime('%Y-%m'), int(item['rx']) + int(item['tx'])
-
-def kernel(cfg):
-    base = Path('/sys/class/net') / cfg['interface'] / 'statistics'
-    return int((base / 'rx_bytes').read_text()) + int((base / 'tx_bytes').read_text())
+    day = cfg.get('reset_day', 1)
+    start = dt.date(today.year, today.month, day)
+    if today < start:
+        previous = today.replace(day=1) - dt.timedelta(days=1)
+        start = dt.date(previous.year, previous.month, day)
+    traffic = interfaces[0].get('traffic', {})
+    if day == 1:
+        entries = [x for x in traffic.get('month', [])
+                   if x.get('date', {}).get('year') == today.year
+                   and x.get('date', {}).get('month') == today.month]
+    else:
+        entries = []
+        for item in traffic.get('day', []):
+            d = item.get('date', {})
+            try:
+                date = dt.date(d['year'], d['month'], d['day'])
+            except (KeyError, ValueError):
+                continue
+            if start <= date <= today:
+                entries.append(item)
+        if entries and min(dt.date(x['date']['year'], x['date']['month'],
+                                   x['date']['day']) for x in entries) > start:
+            print('注意：vnStat 在本账期起始日之前没有每日记录，账期统计可能不完整。', file=sys.stderr)
+    if not entries:
+        raise NoDataYet('vnStat 尚无本账期数据，等待首次采集')
+    return start.isoformat(), sum(int(x['rx']) + int(x['tx']) for x in entries)
 
 def check(cfg, dry_run=False):
     try:
@@ -150,7 +204,8 @@ def check(cfg, dry_run=False):
         return
     used = count / GB
     print(f'{cfg["hostname"]}: {period} 已用 {used:.3f} GB / {cfg["limit_gb"]:g} GB')
-    print(f'内核本次开机累计: {kernel(cfg) / GB:.3f} GB（仅供对照）')
+    kernel_bytes, kernel_label = kernel_since_baseline(cfg)
+    print(f'内核{kernel_label}: {kernel_bytes / GB:.3f} GB（仅供对照）')
     if dry_run:
         return
     with LOCK.open('a+') as lock:
@@ -236,7 +291,14 @@ if [[ -e /usr/local/bin/status && ! -e /usr/local/bin/status.traffic-monitor-bac
 fi
 cat > /usr/local/bin/status <<'STATUS'
 #!/usr/bin/env bash
-vnstat -i "$(python3 -c 'import json; print(json.load(open("/etc/traffic-monitor/config.json"))["interface"])')" -m
+iface=$(python3 -c 'import json; print(json.load(open("/etc/traffic-monitor/config.json"))["interface"])')
+reset_day=$(python3 -c 'import json; print(json.load(open("/etc/traffic-monitor/config.json")).get("reset_day", 1))')
+if [[ "$reset_day" == 1 ]]; then
+  vnstat -i "$iface" -m
+else
+  echo "vnStat 每日记录（账期每月 ${reset_day} 日重置）："
+  vnstat -i "$iface" -d
+fi
 echo
 /usr/local/sbin/traffic-monitor --check
 STATUS
