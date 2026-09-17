@@ -27,7 +27,7 @@ sudo bash install_traffic_monitor.sh
 3. 达限动作：`alert` 仅发邮件，或 `shutdown` 自动关机。自动关机还需要输入 `YES` 确认。
 4. SMTP 服务器、端口、发件账号、收件邮箱与应用密码/授权码。SMTP 服务器默认 `smtp.gmail.com`，端口默认 `587`；直接回车即可采用默认值。
 
-安装器会发送一封测试邮件。只有 SMTP 提交成功后才启用定时任务。授权码在终端输入时不显示，保存在仅 root 可读的 `/etc/traffic-monitor/smtp-password`；配置文件同样仅 root 可读。请勿将这些文件提交到 GitHub。
+安装器会发送一封测试邮件。只有 SMTP 提交成功后才启用定时任务。授权码在终端输入时不显示，保存在仅 root 可读的 `/etc/traffic-monitor/smtp-password`；msmtp 配置保存在仅 root 可读的 `/root/.msmtprc-traffic-monitor`，以兼容 Debian 的 AppArmor 规则。请勿将这些文件提交到 GitHub。
 
 ## 查看与验证
 
@@ -52,7 +52,7 @@ sudo traffic-monitor --test-mail
 | --- | --- |
 | `/usr/local/sbin/traffic-monitor` | 监控与邮件程序 |
 | `/usr/local/bin/status` | 合并显示命令 |
-| `/etc/traffic-monitor/` | 配置和 SMTP 授权码，仅 root 可读 |
+| `/etc/traffic-monitor/` 与 `/root/.msmtprc-traffic-monitor` | 监控配置、SMTP 授权码与 msmtp 配置，仅 root 可读 |
 | `/var/lib/traffic-monitor/state.json` | 本账期已发送提醒的记录 |
 | `/etc/systemd/system/traffic-monitor.timer` | 定时检查 |
 
