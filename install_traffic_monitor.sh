@@ -32,7 +32,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 CONFIG = Path('/etc/traffic-monitor/config.json')
-MSMTP = Path('/etc/traffic-monitor/msmtprc')
+MSMTP = Path('/root/.msmtprc-traffic-monitor')
 SECRET = Path('/etc/traffic-monitor/smtp-password')
 STATE = Path('/var/lib/traffic-monitor/state.json')
 LOCK = Path('/var/lib/traffic-monitor/lock')
