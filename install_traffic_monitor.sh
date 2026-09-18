@@ -81,6 +81,7 @@ def kernel_since_baseline(cfg):
     return total - saved['bytes'], '自设置基线以来'
 
 def configure():
+    print('提示：[] 内为默认选项，直接按回车即可确认。')
     timezone = subprocess.check_output(
         ['timedatectl', 'show', '-p', 'Timezone', '--value'], text=True).strip() or 'UTC'
     print(f'当前机器时区：{timezone}')

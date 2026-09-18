@@ -21,7 +21,7 @@ curl -fL -o install_traffic_monitor.sh https://raw.githubusercontent.com/leovan0
 sudo bash install_traffic_monitor.sh
 ```
 
-安装器依次询问：
+安装器会先提示“[] 内为默认选项，直接按回车即可确认”，然后依次询问：
 
 1. 显示当前机器时区，询问是否更改。更改后 vnStat 旧记录不会按新时区重算。
 2. 公网网卡（默认从 IPv4 默认路由识别）与主机标识。
