@@ -116,7 +116,7 @@ def configure():
     if port not in (465, 587):
         raise ValueError('目前仅支持端口 465 或 587')
     user = ask('发件邮箱/SMTP 用户名')
-    recipient = ask('收件邮箱', user)
+    recipient = ask('收件邮箱')
     if not host or not user or not recipient or not re.fullmatch(r'[A-Za-z0-9._-]+', host):
         raise ValueError('SMTP 信息不完整或服务器名无效')
     password = getpass.getpass('SMTP 应用密码或授权码（输入不显示）: ')

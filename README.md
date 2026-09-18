@@ -27,7 +27,7 @@ sudo bash install_traffic_monitor.sh
 2. 公网网卡（默认从 IPv4 默认路由识别）与主机标识。
 3. 每月统计重置日（1～28 日，默认 1 日）、每账期上限和阶梯提醒值，单位为十进制 GB。非 1 日账期使用 vnStat 每日记录累计。
 4. 达限动作：`alert` 仅发邮件，或 `shutdown` 自动关机。自动关机还需要输入 `YES` 确认。
-5. SMTP 服务器、端口、发件账号、收件邮箱与应用密码/授权码。SMTP 服务器默认 `smtp.gmail.com`，端口默认 `587`；直接回车即可采用默认值。Gmail 应用密码中的空格会自动移除，其他 SMTP 密码保持原样。
+5. SMTP 服务器、端口、发件账号、收件邮箱与应用密码/授权码。SMTP 服务器默认 `smtp.gmail.com`，端口默认 `587`；收件邮箱没有默认值，必须填写。Gmail 应用密码中的空格会自动移除，其他 SMTP 密码保持原样。
 6. 询问是否把当前内核网卡计数设为显示基线。选择后只显示从此刻起的内核流量；不清除系统原始计数或 vnStat 记录。重启或网卡计数回退后显示本次开机累计。
 
 安装器会发送一封测试邮件。只有 SMTP 提交成功后才启用定时任务。授权码在终端输入时不显示，保存在仅 root 可读的 `/etc/traffic-monitor/smtp-password`；msmtp 配置保存在仅 root 可读的 `/root/.msmtprc-traffic-monitor`，以兼容 Debian 的 AppArmor 规则。请勿将这些文件提交到 GitHub。
