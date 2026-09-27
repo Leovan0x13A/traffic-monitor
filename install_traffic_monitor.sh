@@ -189,11 +189,16 @@ def configure():
         state = json.loads(STATE.read_text()) if STATE.exists() else {}
     except (OSError, json.JSONDecodeError):
         state = {}
-    if state.get('period') != supplement_period:
+    same_period = state.get('period') == supplement_period
+    if not same_period:
         state = {'period': supplement_period, 'sent': [], 'limit_done': False}
-    sent = set(state.get('sent', []))
-    sent.update(str(node) for node in cfg['nodes_gb'] if node <= current_gb)
-    state['sent'] = sorted(sent, key=float)
+    elif state.get('sent'):
+        recorded = ', '.join(f'{float(node):g}' for node in state['sent'])
+        print(f'检测到本统计周期已记录的提醒阶梯：{recorded} GB。')
+        if ask('是否清空这些记录，让已达到的阶梯重新发送？y/N', 'N').lower() in ('y', 'yes'):
+            state['sent'] = []
+            print('本统计周期的阶梯提醒记录已清空。')
+    state.setdefault('sent', [])
     state.setdefault('limit_done', False)
     atomic_json(STATE, state)
     if ask('是否让内核流量也从上述当前总量开始累计？Y/n', 'Y').lower() in ('y', 'yes'):
