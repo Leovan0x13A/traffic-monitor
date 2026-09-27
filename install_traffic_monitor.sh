@@ -376,7 +376,7 @@ cat > /usr/local/bin/status <<'STATUS'
 #!/usr/bin/env bash
 iface=$(python3 -c 'import json; print(json.load(open("/etc/traffic-monitor/config.json"))["interface"])')
 reset_day=$(python3 -c 'import json; print(json.load(open("/etc/traffic-monitor/config.json")).get("reset_day", 1))')
-echo "vnStat 原始记录（不含手动补录）："
+echo "vnStat 原始记录："
 if [[ "$reset_day" == 1 ]]; then
   vnstat -i "$iface" -m
 else
