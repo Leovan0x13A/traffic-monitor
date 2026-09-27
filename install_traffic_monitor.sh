@@ -219,7 +219,7 @@ def check(cfg, dry_run=False):
             if not state['limit_done']:
                 try:
                     send_mail(cfg, f'流量达限：{cfg["hostname"]}',
-                              f'主机：{cfg["hostname"]}\n账期：{period}\n已用：{used:.3f} GB\n上限：{cfg["limit_gb"]:g} GB\n动作：{cfg["action"]}')
+                              f'主机：{cfg["hostname"]}\n已用：{used:.3f} GB\n上限：{cfg["limit_gb"]:g} GB\n动作：{cfg["action"]}')
                 except Exception as exc:
                     print(f'达限邮件发送失败：{exc}', file=sys.stderr)
                 else:
@@ -232,7 +232,7 @@ def check(cfg, dry_run=False):
             key = str(node)
             if used >= node and key not in state['sent']:
                 send_mail(cfg, f'流量提醒：{cfg["hostname"]} 达到 {node:g} GB',
-                          f'主机：{cfg["hostname"]}\n账期：{period}\n已用：{used:.3f} GB\n提醒阶梯：{node:g} GB')
+                          f'主机：{cfg["hostname"]}\n已用：{used:.3f} GB\n提醒阶梯：{node:g} GB')
                 state['sent'].append(key)
                 atomic_json(STATE, state)
 
