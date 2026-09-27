@@ -280,7 +280,7 @@ cat > /etc/systemd/system/traffic-monitor.timer <<'UNIT'
 Description=Check traffic every five minutes
 
 [Timer]
-OnBootSec=2min
+OnActiveSec=2min
 OnUnitActiveSec=5min
 Persistent=true
 
@@ -305,5 +305,7 @@ echo
 STATUS
 chmod 755 /usr/local/bin/status
 systemctl daemon-reload
-systemctl enable --now traffic-monitor.timer
+systemctl enable traffic-monitor.timer
+# 重复安装时计时器可能仍保持旧的 elapsed 状态；显式重启以重新安排下一次运行。
+systemctl restart traffic-monitor.timer
 echo '安装完成。运行 status 查看流量；运行 systemctl status traffic-monitor.timer 查看定时任务。'
