@@ -281,9 +281,12 @@ def check(cfg, dry_run=False):
     supplement = (cfg.get('supplement_gb', 0.0)
                   if cfg.get('supplement_period') == period else 0.0)
     used = raw_used + supplement
-    print(f'{cfg["hostname"]}: 已用 {used:.3f} GB / {cfg["limit_gb"]:g} GB')
+    print(f'{cfg["hostname"]}: 邮件监控用量 {used:.3f} GB / {cfg["limit_gb"]:g} GB')
     if supplement > 0:
-        print(f'  vnStat 实测 {raw_used:.3f} GB + 本周期补录 {supplement:.3f} GB')
+        print(f'vnStat 本统计周期累计（含补录）: {used:.3f} GB'
+              f'（原始 {raw_used:.3f} + 补录 {supplement:.3f}）')
+    else:
+        print(f'vnStat 本统计周期累计: {used:.3f} GB')
     kernel_bytes, kernel_label = kernel_period_total(cfg, period)
     print(f'内核{kernel_label}: {kernel_bytes / GB:.3f} GB（系统原始计数，仅供对照）')
     if dry_run:
@@ -373,10 +376,11 @@ cat > /usr/local/bin/status <<'STATUS'
 #!/usr/bin/env bash
 iface=$(python3 -c 'import json; print(json.load(open("/etc/traffic-monitor/config.json"))["interface"])')
 reset_day=$(python3 -c 'import json; print(json.load(open("/etc/traffic-monitor/config.json")).get("reset_day", 1))')
+echo "vnStat 原始记录（不含手动补录）："
 if [[ "$reset_day" == 1 ]]; then
   vnstat -i "$iface" -m
 else
-  echo "vnStat 每日记录（统计周期每月 ${reset_day} 日重置）："
+  echo "统计周期每月 ${reset_day} 日重置；以下为每日原始值。"
   vnstat -i "$iface" -d
 fi
 echo
