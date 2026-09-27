@@ -46,6 +46,16 @@ journalctl -u traffic-monitor.service -n 30 --no-pager
 
 `status` 会先显示 vnStat 数据库原始记录，再另行显示邮件监控用量、vnStat 本周期累计值与内核本周期累计值。补录生效时，后两项会标明“含补录”；进入下个统计周期后自动恢复普通显示。邮件阶梯和流量上限以“vnStat 原始统计＋本周期补录”为唯一判断值；vnStat 表格中的 `estimated` 预测值不参与判断。
 
+需要立即执行一次提醒检测，并查看执行日志和本周期提醒记录时运行：
+
+```bash
+sudo systemctl start traffic-monitor.service
+journalctl -u traffic-monitor.service -n 30 --no-pager
+cat /var/lib/traffic-monitor/state.json
+```
+
+`status` 和 `traffic-monitor --check` 只显示数据；`traffic-monitor.service` 才会实际发送阶梯提醒或执行达限动作。状态文件中的 `sent` 保存本周期已经成功发送的提醒阶梯。
+
 需要重新发送测试邮件时：
 
 ```bash
