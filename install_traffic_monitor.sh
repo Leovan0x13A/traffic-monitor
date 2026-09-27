@@ -70,6 +70,14 @@ def kernel(cfg):
 def boot_id():
     return Path('/proc/sys/kernel/random/boot_id').read_text().strip()
 
+def period_start(reset_day):
+    today = dt.datetime.now().astimezone().date()
+    start = dt.date(today.year, today.month, reset_day)
+    if today < start:
+        previous = today.replace(day=1) - dt.timedelta(days=1)
+        start = dt.date(previous.year, previous.month, reset_day)
+    return start
+
 def kernel_since_baseline(cfg):
     total = kernel(cfg)
     if not KERNEL_BASE.exists():
@@ -102,10 +110,26 @@ def configure():
     reset_day = int(ask('每月流量统计重置日（1～28 日）', '1'))
     if not 1 <= reset_day <= 28:
         raise ValueError('重置日只能是 1～28 日')
-    limit = float(ask('每账期熔断值（十进制 GB）', '1000'))
+    limit = float(ask('每个统计周期流量上限（十进制 GB）', '1000'))
     nodes = [float(x.strip()) for x in ask('提醒阶梯，逗号分隔（GB）', '50,100,200,300,400,500,600,700,800,900,950').split(',')]
     if limit <= 0 or any(x <= 0 or x >= limit for x in nodes):
         raise ValueError('阶梯必须大于 0 且小于熔断值')
+    detected_bytes = 0
+    try:
+        _, detected_bytes = usage({'interface': iface, 'reset_day': reset_day})
+    except NoDataYet:
+        pass
+    except RuntimeError as exc:
+        if not str(exc).startswith('vnStat 中尚无网卡'):
+            raise
+    detected_gb = detected_bytes / GB
+    print(f'vnStat 当前已记录本统计周期 {detected_gb:.3f} GB。')
+    current_gb = float(ask('本统计周期当前已使用总流量（十进制 GB）',
+                           f'{detected_gb:.3f}'))
+    if current_gb < 0 or current_gb + 0.001 < detected_gb:
+        raise ValueError('已使用总流量不能小于 vnStat 已记录的流量')
+    supplement_gb = max(0.0, current_gb - detected_gb)
+    supplement_period = period_start(reset_day).isoformat()
     action = ask('达限动作：alert=仅提醒，shutdown=关机', 'alert').lower()
     if action not in ('alert', 'shutdown'):
         raise ValueError('达限动作只能是 alert 或 shutdown')
@@ -127,8 +151,21 @@ def configure():
     cfg = {'interface': iface, 'hostname': name, 'reset_day': reset_day,
            'limit_gb': limit,
            'nodes_gb': sorted(set(nodes)), 'action': action,
-           'recipient': recipient}
+           'recipient': recipient,
+           'supplement_gb': supplement_gb,
+           'supplement_period': supplement_period}
     atomic_json(CONFIG, cfg)
+    try:
+        state = json.loads(STATE.read_text()) if STATE.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        state = {}
+    if state.get('period') != supplement_period:
+        state = {'period': supplement_period, 'sent': [], 'limit_done': False}
+    sent = set(state.get('sent', []))
+    sent.update(str(node) for node in cfg['nodes_gb'] if node <= current_gb)
+    state['sent'] = sorted(sent, key=float)
+    state.setdefault('limit_done', False)
+    atomic_json(STATE, state)
     if ask('是否将当前内核网卡计数设为显示基线（显示从现在起的流量）？y/N', 'N').lower() in ('y', 'yes'):
         atomic_json(KERNEL_BASE, {'interface': iface, 'boot_id': boot_id(),
                                   'bytes': kernel(cfg)})
@@ -171,10 +208,7 @@ def usage(cfg):
         raise RuntimeError(f'vnStat 中尚无网卡 {iface} 的数据')
     today = dt.datetime.now().astimezone().date()
     day = cfg.get('reset_day', 1)
-    start = dt.date(today.year, today.month, day)
-    if today < start:
-        previous = today.replace(day=1) - dt.timedelta(days=1)
-        start = dt.date(previous.year, previous.month, day)
+    start = period_start(day)
     traffic = interfaces[0].get('traffic', {})
     if day == 1:
         entries = [x for x in traffic.get('month', [])
@@ -192,21 +226,29 @@ def usage(cfg):
                 entries.append(item)
         if entries and min(dt.date(x['date']['year'], x['date']['month'],
                                    x['date']['day']) for x in entries) > start:
-            print('注意：vnStat 在本账期起始日之前没有每日记录，账期统计可能不完整。', file=sys.stderr)
+            print('注意：vnStat 在本统计周期起始日之前没有每日记录，统计可能不完整。', file=sys.stderr)
     if not entries:
-        raise NoDataYet('vnStat 尚无本账期数据，等待首次采集')
+        raise NoDataYet('vnStat 尚无本统计周期数据，等待首次采集')
     return start.isoformat(), sum(int(x['rx']) + int(x['tx']) for x in entries)
 
 def check(cfg, dry_run=False):
     try:
         period, count = usage(cfg)
     except NoDataYet as exc:
-        print(exc)
-        return
-    used = count / GB
-    print(f'{cfg["hostname"]}: {period} 已用 {used:.3f} GB / {cfg["limit_gb"]:g} GB')
+        period = period_start(cfg.get('reset_day', 1)).isoformat()
+        if cfg.get('supplement_period') != period or cfg.get('supplement_gb', 0) <= 0:
+            print(exc)
+            return
+        count = 0
+    raw_used = count / GB
+    supplement = (cfg.get('supplement_gb', 0.0)
+                  if cfg.get('supplement_period') == period else 0.0)
+    used = raw_used + supplement
+    print(f'{cfg["hostname"]}: 已用 {used:.3f} GB / {cfg["limit_gb"]:g} GB')
+    if supplement > 0:
+        print(f'  vnStat 实测 {raw_used:.3f} GB + 本周期补录 {supplement:.3f} GB')
     kernel_bytes, kernel_label = kernel_since_baseline(cfg)
-    print(f'内核{kernel_label}: {kernel_bytes / GB:.3f} GB（仅供对照）')
+    print(f'内核{kernel_label}: {kernel_bytes / GB:.3f} GB（系统原始计数，仅供对照）')
     if dry_run:
         return
     with LOCK.open('a+') as lock:
@@ -297,7 +339,7 @@ reset_day=$(python3 -c 'import json; print(json.load(open("/etc/traffic-monitor/
 if [[ "$reset_day" == 1 ]]; then
   vnstat -i "$iface" -m
 else
-  echo "vnStat 每日记录（账期每月 ${reset_day} 日重置）："
+  echo "vnStat 每日记录（统计周期每月 ${reset_day} 日重置）："
   vnstat -i "$iface" -d
 fi
 echo
