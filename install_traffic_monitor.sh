@@ -38,6 +38,7 @@ SECRET = Path('/etc/traffic-monitor/smtp-password')
 STATE = Path('/var/lib/traffic-monitor/state.json')
 LOCK = Path('/var/lib/traffic-monitor/lock')
 KERNEL_BASE = Path('/var/lib/traffic-monitor/kernel-baseline.json')
+KERNEL_LOCK = Path('/var/lib/traffic-monitor/kernel.lock')
 GB = 1_000_000_000
 os.umask(0o077)
 
@@ -78,15 +79,44 @@ def period_start(reset_day):
         start = dt.date(previous.year, previous.month, reset_day)
     return start
 
-def kernel_since_baseline(cfg):
-    total = kernel(cfg)
+def kernel_period_total(cfg, period):
+    raw = kernel(cfg)
+    current_boot = boot_id()
     if not KERNEL_BASE.exists():
-        return total, '本次开机累计'
-    saved = json.loads(KERNEL_BASE.read_text())
-    if (saved.get('interface') != cfg['interface'] or
-            saved.get('boot_id') != boot_id() or total < saved.get('bytes', 0)):
-        return total, '本次开机累计'
-    return total - saved['bytes'], '自设置基线以来'
+        return raw, '本次开机累计'
+    with KERNEL_LOCK.open('a+') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        saved = json.loads(KERNEL_BASE.read_text())
+        if saved.get('interface') != cfg['interface']:
+            return raw, '本次开机累计'
+        if 'total_bytes' not in saved:
+            old_base = saved.get('bytes', 0)
+            if saved.get('boot_id') == current_boot and raw >= old_base:
+                displayed = raw - old_base
+            else:
+                displayed = raw
+            includes_reported = False
+        elif saved.get('period') != period:
+            displayed = 0
+            includes_reported = False
+        else:
+            displayed = int(saved.get('total_bytes', 0))
+            previous_raw = int(saved.get('raw_bytes', raw))
+            if saved.get('boot_id') == current_boot and raw >= previous_raw:
+                displayed += raw - previous_raw
+            else:
+                # 重启或网卡计数归零后，从新计数继续累加。
+                displayed += raw
+            includes_reported = bool(saved.get('includes_reported_total'))
+        atomic_json(KERNEL_BASE, {
+            'interface': cfg['interface'], 'period': period,
+            'boot_id': current_boot, 'raw_bytes': raw,
+            'total_bytes': displayed,
+            'includes_reported_total': includes_reported,
+        })
+    label = ('本统计周期累计（含补录）'
+             if includes_reported else '本统计周期累计')
+    return displayed, label
 
 def configure():
     print('提示：[] 内为默认选项，直接按回车即可确认。')
@@ -166,10 +196,17 @@ def configure():
     state['sent'] = sorted(sent, key=float)
     state.setdefault('limit_done', False)
     atomic_json(STATE, state)
-    if ask('是否将当前内核网卡计数设为显示基线（显示从现在起的流量）？y/N', 'N').lower() in ('y', 'yes'):
-        atomic_json(KERNEL_BASE, {'interface': iface, 'boot_id': boot_id(),
-                                  'bytes': kernel(cfg)})
-        print('内核流量显示基线已设置；系统原始计数和 vnStat 历史不受影响。')
+    if ask('是否让内核流量也从上述当前总量开始累计？Y/n', 'Y').lower() in ('y', 'yes'):
+        atomic_json(KERNEL_BASE, {
+            'interface': iface, 'period': supplement_period,
+            'boot_id': boot_id(), 'raw_bytes': kernel(cfg),
+            'total_bytes': round(current_gb * GB),
+            'includes_reported_total': True,
+        })
+        print(f'内核对照值将从 {current_gb:.3f} GB 继续累加；系统原始计数不受影响。')
+    else:
+        KERNEL_BASE.unlink(missing_ok=True)
+        print('内核对照值将仅显示本次开机累计。')
     SECRET.write_text(password + '\n')
     os.chmod(SECRET, 0o600)
     # msmtp 的密码文件仅 root 可读；凭据不放进进程参数或日志。
@@ -247,7 +284,7 @@ def check(cfg, dry_run=False):
     print(f'{cfg["hostname"]}: 已用 {used:.3f} GB / {cfg["limit_gb"]:g} GB')
     if supplement > 0:
         print(f'  vnStat 实测 {raw_used:.3f} GB + 本周期补录 {supplement:.3f} GB')
-    kernel_bytes, kernel_label = kernel_since_baseline(cfg)
+    kernel_bytes, kernel_label = kernel_period_total(cfg, period)
     print(f'内核{kernel_label}: {kernel_bytes / GB:.3f} GB（系统原始计数，仅供对照）')
     if dry_run:
         return

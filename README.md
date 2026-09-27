@@ -1,6 +1,6 @@
 # traffic-monitor
 
-一键安装 VPS 流量监控工具。脚本安装 vnStat 和 msmtp，支持当前统计周期流量补录、阶梯邮件提醒和可选达限关机。`status` 同时显示 vnStat 记录、补录值与 Linux 内核网卡计数。
+一键安装 VPS 流量监控工具。脚本安装 vnStat 和 msmtp，支持当前统计周期流量补录、阶梯邮件提醒和可选达限关机。`status` 同时显示 vnStat 记录与可补录的 Linux 内核流量累计值。
 
 > **计费口径先核对**：当前版本把 `rx + tx` 相加，以十进制 GB（1 GB = 1,000,000,000 字节）计算。部分 VPS 服务商只计算出站流量，或有不同的重置时刻。若口径不同，请先调整脚本，不要启用自动关机。vnStat 不能自动补算安装前的流量，安装器可将服务商显示的当前已用总量作为本统计周期的补录值。
 
@@ -29,7 +29,7 @@ sudo bash install_traffic_monitor.sh
 4. 显示 vnStat 已记录的本周期用量，询问当前已使用总流量。默认使用 vnStat 数值；填入更大数值时，差额作为本周期补录流量，下个周期自动失效。已经越过的提醒阶梯会记为已处理，避免安装后集中发送旧提醒。
 5. 达限动作：`alert` 仅发邮件，或 `shutdown` 自动关机。自动关机还需要输入 `YES` 确认。
 6. SMTP 服务器、端口、发件账号、收件邮箱与应用密码/授权码。SMTP 服务器默认 `smtp.gmail.com`，端口默认 `587`；收件邮箱没有默认值，必须填写。Gmail 应用密码中的空格会自动移除，其他 SMTP 密码保持原样。
-7. 询问是否把当前内核网卡计数设为显示基线。选择后只显示从此刻起的内核流量；不清除系统原始计数或 vnStat 记录。重启或网卡计数回退后显示本次开机累计。
+7. 询问是否让内核流量也从上述当前总量开始累计，默认为 `Y`。选择后内核对照值会从输入的总量继续增长，跨重启保留，下个统计周期自动归零；系统原始计数和 vnStat 数据库不会被修改。选择 `N` 则只显示本次开机的内核原始累计。
 
 安装器会发送一封测试邮件。只有 SMTP 提交成功后才启用定时任务。授权码在终端输入时不显示，保存在仅 root 可读的 `/etc/traffic-monitor/smtp-password`；msmtp 配置保存在仅 root 可读的 `/root/.msmtprc-traffic-monitor`，以兼容 Debian 的 AppArmor 规则。请勿将这些文件提交到 GitHub。
 
@@ -69,14 +69,14 @@ sudo bash uninstall_traffic_monitor.sh
 | `/usr/local/bin/status` | 合并显示命令 |
 | `/etc/traffic-monitor/` 与 `/root/.msmtprc-traffic-monitor` | 监控配置、SMTP 授权码与 msmtp 配置，仅 root 可读 |
 | `/var/lib/traffic-monitor/state.json` | 本统计周期已发送提醒的记录 |
-| `/var/lib/traffic-monitor/kernel-baseline.json` | 可选的内核计数显示基线 |
+| `/var/lib/traffic-monitor/kernel-baseline.json` | 可选的内核流量补录与跨重启累计状态 |
 | `/etc/systemd/system/traffic-monitor.timer` | 定时检查 |
 
 若安装前已存在 `/usr/local/bin/status`，安装器会保留一次备份：`/usr/local/bin/status.traffic-monitor-backup`。
 
 ## 注意事项
 
-- vnStat 实测用量加本周期补录值是提醒和关机的依据。补录值只存在项目配置中，不修改 vnStat 数据库或 Linux 内核网卡计数。内核计数仅供对照，重启后会重新开始。
+- vnStat 实测用量加本周期补录值是提醒和关机的依据。内核累计值仅供对照，可从同一已用总量开始并跨重启继续。两种补录都只存在项目配置中，不修改 vnStat 数据库或 Linux 内核网卡计数。突然重启前尚未进入最近一次五分钟检查的少量内核流量可能无法补记。
 - 若用量已经超过上限，选择 `shutdown` 后，定时检查会执行关机；重新开机后仍超限时也会再次关机。请先在 `alert` 模式核对计费口径。
 - 邮件发送失败不会阻止已启用的自动关机；发送失败信息会进入 systemd 日志。
 - SMTP 提交成功仅表示邮件服务器接收了邮件，不保证收件箱最终送达。
